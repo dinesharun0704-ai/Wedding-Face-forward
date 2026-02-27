@@ -200,3 +200,240 @@ class SystemHealthIndicator(ctk.CTkFrame):
         
         self.after(500, self._pulse)
 
+class StatCard(ctk.CTkFrame):
+    """A stat card with big number and label — peach/beige background."""
+    
+    def __init__(self, parent, title: str, value: str = "0", highlight: bool = False):
+        bg_color = COLORS["stat_highlight"] if highlight else COLORS["stat_bg"]
+        super().__init__(
+            parent, fg_color=bg_color, corner_radius=14,
+            border_width=1, border_color=COLORS["border"]
+        )
+        
+        self._bg_color = bg_color
+        self.value_label = ctk.CTkLabel(
+            self, text=value, font=("Segoe UI", 26, "bold"),
+            text_color=COLORS["text_primary"]
+        )
+        self.value_label.pack(pady=(18, 4))
+        
+        self.title_label = ctk.CTkLabel(
+            self, text=title.upper(), font=("Segoe UI", 10),
+            text_color=COLORS["text_primary"]
+        )
+        self.title_label.pack(pady=(0, 16))
+        
+        self._last_value = value
+    
+    def update_value(self, value: str):
+        if value != self._last_value:
+            self.value_label.configure(text_color=COLORS["accent"])
+            self.after(300, lambda: self.value_label.configure(text_color=COLORS["text_primary"]))
+            self.value_label.configure(text=value)
+            self._last_value = value
+
+
+# =============================================================================
+# Status Card (Thick Black Border) — for PROCESSING, CLOUD SYNC, STUCK
+# =============================================================================
+class StatusCard(ctk.CTkFrame):
+    """Status card with thick black border, white bg, bold text — matches design guide."""
+    
+    def __init__(self, parent, title: str):
+        super().__init__(
+            parent, fg_color=COLORS["bg_card"], corner_radius=14,
+            border_width=1, border_color=COLORS["border"]
+        )
+        
+        self.title_label = ctk.CTkLabel(
+            self, text=title.upper(), font=("Segoe UI", 12, "bold"),
+            text_color=COLORS["text_primary"]
+        )
+        self.title_label.pack(pady=(12, 4))
+        
+        self.value_label = ctk.CTkLabel(
+            self, text="—", font=("Segoe UI", 22, "bold"),
+            text_color=COLORS["text_secondary"]
+        )
+        self.value_label.pack(pady=(0, 4))
+        
+        self.detail_label = ctk.CTkLabel(
+            self, text="", font=("Segoe UI", 10),
+            text_color=COLORS["text_secondary"]
+        )
+        self.detail_label.pack(pady=(0, 10))
+    
+    def set_status(self, value: str, detail: str = "", color=None):
+        self.value_label.configure(
+            text=value,
+            text_color=color or COLORS["text_primary"]
+        )
+        self.detail_label.configure(text=detail)
+
+
+# =============================================================================
+# Processing Widget (Circular Progress Bar)
+# =============================================================================
+class ProcessingWidget(ctk.CTkFrame):
+    """Animated circular progress bar with percentage and status."""
+    
+    def __init__(self, parent):
+        super().__init__(parent, fg_color=COLORS["bg_card"], corner_radius=14, border_width=1, border_color=COLORS["border"])
+        
+        self.title_label = ctk.CTkLabel(
+            self, text="PROCESSING", font=("Segoe UI", 12, "bold"),
+            text_color=COLORS["text_primary"], anchor="w"
+        )
+        self.title_label.pack(fill="x", padx=20, pady=(12, 4))
+        
+        # Canvas for circular progress
+        self.canvas_size = 120
+        self.canvas = ctk.CTkCanvas(
+            self, width=self.canvas_size, height=self.canvas_size,
+            bg=COLORS["bg_card"][0], highlightthickness=0
+        )
+        self.canvas.pack(pady=4)
+        
+        self.progress_label = ctk.CTkLabel(
+            self, text="0 / 0 Photos", font=("Segoe UI", 11),
+            text_color=COLORS["text_secondary"]
+        )
+        self.progress_label.pack(pady=(0, 2))
+        
+        self.status_label = ctk.CTkLabel(
+            self, text="Idle", font=("Segoe UI", 12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.status_label.pack(pady=(0, 10))
+        
+        self._animating = False
+        self._angle = 0
+        self._mode = "light"
+        
+        self._target_progress = 0.0
+        self._current_progress = 0.0
+        self._completed = 0
+        self._total = 0
+        
+        self._draw_ring()
+
+    def set_appearance_mode(self, mode):
+        self._mode = mode.lower()
+        bg = COLORS["bg_card"][1] if self._mode == "dark" else COLORS["bg_card"][0]
+        self.canvas.configure(bg=bg)
+        self._draw_ring()
+
+    def _draw_ring(self):
+        """Draw the circular progress ring with current state."""
+        self.canvas.delete("all")
+        cx, cy = self.canvas_size / 2, self.canvas_size / 2
+        r = 45
+        line_w = 6
+        
+        track_color = "#3a3a3c" if self._mode == "dark" else "#e0e0e0"
+        self.canvas.create_oval(cx-r, cy-r, cx+r, cy+r, outline=track_color, width=line_w)
+        
+        progress = self._current_progress
+        if progress > 0:
+            extent = progress * 360
+            
+            if progress >= 1.0:
+                arc_color = COLORS["success"][1] if self._mode == "dark" else COLORS["success"][0]
+            else:
+                arc_color = COLORS["accent"][1] if self._mode == "dark" else COLORS["accent"][0]
+            
+            self.canvas.create_arc(
+                cx-r, cy-r, cx+r, cy+r,
+                start=90, extent=-extent,
+                outline=arc_color, width=line_w, style="arc"
+            )
+            
+            if 0 < progress < 1.0:
+                angle_rad = math.radians(90 - extent)
+                dot_x = cx + r * math.cos(angle_rad)
+                dot_y = cy - r * math.sin(angle_rad)
+                dot_r = 4
+                self.canvas.create_oval(
+                    dot_x-dot_r, dot_y-dot_r, dot_x+dot_r, dot_y+dot_r,
+                    fill=arc_color, outline=""
+                )
+        
+        pct_color = COLORS["text_primary"][1] if self._mode == "dark" else COLORS["text_primary"][0]
+        
+        if self._total == 0 and not self._animating:
+            self.canvas.create_text(
+                cx, cy - 4, text="--",
+                fill=track_color, font=("Segoe UI", 24, "bold")
+            )
+            self.canvas.create_text(
+                cx, cy + 16, text="IDLE",
+                fill=track_color, font=("Segoe UI", 9)
+            )
+        elif progress >= 1.0:
+            done_color = COLORS["success"][1] if self._mode == "dark" else COLORS["success"][0]
+            self.canvas.create_text(
+                cx, cy - 2, text="DONE",
+                fill=done_color, font=("Segoe UI", 18, "bold")
+            )
+        else:
+            pct = int(progress * 100)
+            self.canvas.create_text(
+                cx, cy - 6, text=f"{pct}",
+                fill=pct_color, font=("Segoe UI", 28, "bold")
+            )
+            self.canvas.create_text(
+                cx, cy + 16, text="%",
+                fill=COLORS["text_secondary"][1] if self._mode == "dark" else COLORS["text_secondary"][0],
+                font=("Segoe UI", 11)
+            )
+
+    def update_progress(self, completed: int, total: int):
+        """Update progress bar with current counts."""
+        self._completed = completed
+        self._total = total
+        
+        if total > 0:
+            self._target_progress = min(completed / total, 1.0)
+        else:
+            self._target_progress = 0.0
+        
+        if total == 0:
+            self.progress_label.configure(text="No photos queued")
+            self.status_label.configure(text="Idle", text_color=COLORS["text_secondary"])
+        elif completed >= total:
+            self.progress_label.configure(text=f"{completed} / {total} Photos")
+            self.status_label.configure(text="All Done!", text_color=COLORS["success"])
+        else:
+            self.progress_label.configure(text=f"{completed} / {total} Photos")
+            self.status_label.configure(text="Processing...", text_color=COLORS["accent"])
+
+    def start_processing(self):
+        if not self._animating:
+            self._animating = True
+            self._animate()
+
+    def stop_processing(self):
+        self._animating = False
+        if self._total == 0:
+            self.status_label.configure(text="Idle", text_color=COLORS["text_secondary"])
+            self._current_progress = 0
+            self._target_progress = 0
+            self._draw_ring()
+
+    def draw_static_ring(self):
+        """Legacy compatibility."""
+        self._draw_ring()
+
+    def _animate(self):
+        if not self._animating:
+            return
+        
+        diff = self._target_progress - self._current_progress
+        if abs(diff) > 0.002:
+            self._current_progress += diff * 0.12
+        else:
+            self._current_progress = self._target_progress
+        
+        self._draw_ring()
+        self.after(33, self._animate)
+
