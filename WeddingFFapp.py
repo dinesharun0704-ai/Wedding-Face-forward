@@ -437,3 +437,159 @@ class ProcessingWidget(ctk.CTkFrame):
         self._draw_ring()
         self.after(33, self._animate)
 
+class CloudWidget(ctk.CTkFrame):
+    """Animated cloud upload status."""
+    
+    def __init__(self, parent):
+        super().__init__(parent, fg_color=COLORS["bg_card"], corner_radius=14, border_width=1, border_color=COLORS["border"])
+        
+        self.title_label = ctk.CTkLabel(
+            self, text="CLOUD SYNC", font=("Segoe UI", 12, "bold"),
+            text_color=COLORS["text_primary"], anchor="w"
+        )
+        self.title_label.pack(fill="x", padx=20, pady=(12, 4))
+        
+        self.canvas_size = 120
+        self.canvas = ctk.CTkCanvas(
+            self, width=self.canvas_size, height=self.canvas_size,
+            bg=COLORS["bg_card"][0], highlightthickness=0
+        )
+        self.canvas.pack(pady=4)
+        
+        self.status_label = ctk.CTkLabel(
+            self, text="Synced", font=("Segoe UI", 12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.status_label.pack(pady=(0, 10))
+        
+        self._uploading = False
+        self._offset = 0
+        self._mode = "light"
+        
+        self.draw_static_cloud()
+
+    def set_appearance_mode(self, mode):
+        self._mode = mode.lower()
+        bg = COLORS["bg_card"][1] if self._mode == "dark" else COLORS["bg_card"][0]
+        self.canvas.configure(bg=bg)
+        if not self._uploading:
+            self.draw_static_cloud()
+
+    def draw_static_cloud(self):
+        self.canvas.delete("all")
+        self._draw_cloud_icon(offset=0, color=COLORS["text_secondary"][1] if self._mode == "dark" else COLORS["text_secondary"][0])
+
+    def start_uploading(self):
+        if not self._uploading:
+            self._uploading = True
+            self.status_label.configure(text="Uploading...", text_color=COLORS["accent"])
+            self._animate()
+
+    def stop_uploading(self):
+        if self._uploading:
+            self._uploading = False
+            self.status_label.configure(text="Synced", text_color=COLORS["success"])
+            self.draw_static_cloud()
+
+    def _draw_cloud_icon(self, offset=0, color="gray"):
+        cx, cy = self.canvas_size / 2, self.canvas_size / 2
+        
+        self.canvas.create_oval(cx-30, cy-10, cx+10, cy+20, fill=color, outline="")
+        self.canvas.create_oval(cx-10, cy-20, cx+30, cy+10, fill=color, outline="")
+        self.canvas.create_oval(cx+10, cy-10, cx+40, cy+20, fill=color, outline="")
+        self.canvas.create_oval(cx-20, cy+5, cx+30, cy+20, fill=color, outline="")
+        
+        if self._uploading:
+            arrow_y = cy + 10 - offset
+            ac = COLORS["success"][1] if self._mode == "dark" else COLORS["success"][0]
+            self.canvas.create_line(cx, arrow_y, cx, arrow_y-20, width=3, fill=ac, capstyle="round")
+            self.canvas.create_line(cx, arrow_y-20, cx-8, arrow_y-12, width=3, fill=ac, capstyle="round")
+            self.canvas.create_line(cx, arrow_y-20, cx+8, arrow_y-12, width=3, fill=ac, capstyle="round")
+
+    def _animate(self):
+        if not self._uploading:
+            return
+            
+        self.canvas.delete("all")
+        cloud_color = COLORS["text_primary"][1] if self._mode == "dark" else COLORS["text_primary"][0]
+        self._draw_cloud_icon(offset=self._offset, color=cloud_color)
+        
+        self._offset = (self._offset + 2) % 20
+        self.after(50, self._animate)
+
+
+# =============================================================================
+# Stuck Photos Card
+# =============================================================================
+class StuckPhotosCard(ctk.CTkFrame):
+    """Shows stuck photos in processing — both image analysis and cloud upload."""
+    
+    def __init__(self, parent):
+        super().__init__(
+            parent, fg_color=COLORS["bg_card"], corner_radius=14,
+            border_width=1, border_color=COLORS["border"]
+        )
+        
+        self.title_label = ctk.CTkLabel(
+            self, text="STUCK PHOTOS", font=("Segoe UI", 12, "bold"),
+            text_color=COLORS["text_primary"]
+        )
+        self.title_label.pack(pady=(12, 8))
+        
+        # Processing stuck
+        proc_frame = ctk.CTkFrame(self, fg_color="transparent")
+        proc_frame.pack(fill="x", padx=16, pady=2)
+        ctk.CTkLabel(
+            proc_frame, text="Image Analysis", font=("Segoe UI", 11),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
+        self.proc_stuck_label = ctk.CTkLabel(
+            proc_frame, text="0", font=("Segoe UI", 14, "bold"),
+            text_color=COLORS["text_primary"]
+        )
+        self.proc_stuck_label.pack(side="right")
+        
+        # Cloud stuck
+        cloud_frame = ctk.CTkFrame(self, fg_color="transparent")
+        cloud_frame.pack(fill="x", padx=16, pady=2)
+        ctk.CTkLabel(
+            cloud_frame, text="Cloud Upload", font=("Segoe UI", 11),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
+        self.cloud_stuck_label = ctk.CTkLabel(
+            cloud_frame, text="0", font=("Segoe UI", 14, "bold"),
+            text_color=COLORS["text_primary"]
+        )
+        self.cloud_stuck_label.pack(side="right")
+        
+        # Total
+        sep = ctk.CTkFrame(self, fg_color=COLORS["border"], height=1)
+        sep.pack(fill="x", padx=16, pady=(6, 4))
+        
+        total_frame = ctk.CTkFrame(self, fg_color="transparent")
+        total_frame.pack(fill="x", padx=16, pady=(0, 10))
+        ctk.CTkLabel(
+            total_frame, text="Total Stuck", font=("Segoe UI", 11, "bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+        self.total_stuck_label = ctk.CTkLabel(
+            total_frame, text="0", font=("Segoe UI", 14, "bold"),
+            text_color=COLORS["text_primary"]
+        )
+        self.total_stuck_label.pack(side="right")
+    
+    def update_stuck(self, proc_stuck: int, cloud_stuck: int):
+        total = proc_stuck + cloud_stuck
+        
+        self.proc_stuck_label.configure(
+            text=str(proc_stuck),
+            text_color=COLORS["warning"] if proc_stuck > 0 else COLORS["success"]
+        )
+        self.cloud_stuck_label.configure(
+            text=str(cloud_stuck),
+            text_color=COLORS["warning"] if cloud_stuck > 0 else COLORS["success"]
+        )
+        self.total_stuck_label.configure(
+            text=str(total),
+            text_color=COLORS["error"] if total > 0 else COLORS["success"]
+        )
