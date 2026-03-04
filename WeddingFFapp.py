@@ -593,3 +593,295 @@ class StuckPhotosCard(ctk.CTkFrame):
             text=str(total),
             text_color=COLORS["error"] if total > 0 else COLORS["success"]
         )
+class ActivityLog(ctk.CTkFrame):
+    """Activity log with dark grey bg and black terminal — per design guide."""
+    
+    def __init__(self, parent):
+        super().__init__(
+            parent, fg_color=COLORS["log_outer"], corner_radius=14,
+            border_width=0
+        )
+        
+        self.title_label = ctk.CTkLabel(
+            self, text="ACTIVITY LOG", font=("Segoe UI", 12, "bold"),
+            text_color=("#a0a0b0", "#a0a0b0"), anchor="w"
+        )
+        self.title_label.pack(fill="x", padx=16, pady=(12, 8))
+        
+        # Black terminal inside
+        self.textbox = ctk.CTkTextbox(
+            self, font=("Consolas", 11),
+            fg_color=COLORS["log_inner"],
+            text_color=("#c0c0d0", "#b0b0c0"),
+            corner_radius=10, height=120
+        )
+        self.textbox.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self.textbox.configure(state="disabled")
+        
+        # Define tags for coloring
+        self.textbox.tag_config("proc", foreground="#5ac8fa")
+        self.textbox.tag_config("db", foreground="#ffcc00")
+        self.textbox.tag_config("cloud", foreground="#af52de")
+        self.textbox.tag_config("whatsapp", foreground="#34c759")
+        self.textbox.tag_config("server", foreground="#007aff")
+        self.textbox.tag_config("error", foreground="#ff3b30")
+        self.textbox.tag_config("timestamp", foreground="#888888")
+    
+    def add_log(self, message: str, level: str = "info"):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        icon = "•"
+        tag = "info"
+        display_msg = message
+
+        lower_msg = message.lower()
+        
+        if "app.processor" in lower_msg or "processing" in lower_msg:
+            icon = "⚙️"
+            tag = "proc"
+            display_msg = message.replace("app.processor |", "").strip()
+            if display_msg.startswith("[Worker]"): display_msg = display_msg.replace("[Worker]", "").strip()
+            display_msg = f"Processor | {display_msg}"
+            
+        elif "app.db" in lower_msg or "database" in lower_msg:
+            icon = "🗄️"
+            tag = "db"
+            display_msg = message.replace("app.db |", "").strip()
+            if display_msg.startswith("[Worker]"): display_msg = display_msg.replace("[Worker]", "").strip()
+            display_msg = f"Database | {display_msg}"
+            
+        elif "app.cloud" in lower_msg or "drive" in lower_msg:
+            icon = "☁️"
+            tag = "cloud"
+            display_msg = message.replace("app.cloud |", "").strip()
+            if display_msg.startswith("[Worker]"): display_msg = display_msg.replace("[Worker]", "").strip()
+            display_msg = f"Cloud | {display_msg}"
+            
+        elif "whatsapp" in lower_msg:
+            icon = "💬"
+            tag = "whatsapp"
+            if display_msg.startswith("[WhatsApp]"): display_msg = display_msg.replace("[WhatsApp]", "").strip()
+            display_msg = f"WhatsApp | {display_msg}"
+            
+        elif "server" in lower_msg:
+            icon = "🌐"
+            tag = "server"
+            if display_msg.startswith("[Server]"): display_msg = display_msg.replace("[Server]", "").strip()
+            display_msg = f"Server | {display_msg}"
+            
+        elif level == "error":
+            icon = "✗"
+            tag = "error"
+        elif level == "success":
+            icon = "✓"
+            tag = "whatsapp"
+
+        self.textbox.configure(state="normal")
+        
+        self.textbox.insert("1.0", f"{display_msg}\n")
+        
+        prefix = f"{timestamp}  {icon}  "
+        self.textbox.insert("1.0", prefix, (tag,))
+        
+        self.textbox.configure(state="disabled")
+
+
+# =============================================================================
+# Folder Choice Popup (Hover Menu)
+# =============================================================================
+class FolderChoicePopup(ctk.CTkToplevel):
+    """Floating popup: face thumbnail + Local / Cloud buttons."""
+    
+    THUMB_W = 230           # thumbnail width (+10% increase)
+    THUMB_H = 290           # thumbnail height
+    BTN_AREA_H = 30         # height for the button row
+    PADDING = 4             # removed padding to accommodate wider image without growing window
+    
+    def __init__(self, parent, x, y, person_name, on_local, on_cloud, thumbnail_path=None):
+        # Always parent to the root window to avoid "bad window path" errors
+        # when the scrollable frame widget hierarchy changes (especially on external displays)
+        root = parent.winfo_toplevel()
+        super().__init__(root)
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        
+        # Windows transparency fix for rounded outer corners
+        if sys.platform.startswith("win"):
+            self.attributes("-transparentcolor", "#000001")
+            self.configure(fg_color="#000001")
+        else:
+            self.configure(fg_color="transparent")
+        
+        curr_mode = ctk.get_appearance_mode()
+        bg_color = COLORS["bg_card"][1] if curr_mode == "Dark" else COLORS["bg_card"][0]
+        
+        has_thumb = thumbnail_path and Path(thumbnail_path).exists()
+        popup_w = self.THUMB_W + self.PADDING * 2 + 4  # +4 for border
+        popup_h = (self.THUMB_H + self.BTN_AREA_H + self.PADDING * 3 + 4) if has_thumb else (self.BTN_AREA_H + self.PADDING * 2 + 4)
+        
+        # Outer border frame
+        self.outer_frame = ctk.CTkFrame(self, fg_color=COLORS["border"], corner_radius=16)
+        self.outer_frame.pack(padx=0, pady=0)
+        
+        # Inner card
+        self.frame = ctk.CTkFrame(self.outer_frame, fg_color=bg_color, corner_radius=14, border_width=0)
+        self.frame.pack(padx=2, pady=2)
+        
+        # ---- Thumbnail (clear, clipped to rounded rect) ----
+        self._tk_thumb = None
+        if has_thumb:
+            try:
+                img = Image.open(thumbnail_path).convert("RGBA")
+                
+                # Crop to portrait ratio from center
+                tw, th = self.THUMB_W, self.THUMB_H
+                w, h = img.size
+                target_ratio = tw / th
+                src_ratio = w / h
+                if src_ratio > target_ratio:
+                    # Source is wider — crop sides
+                    new_w = int(h * target_ratio)
+                    left = (w - new_w) // 2
+                    img = img.crop((left, 0, left + new_w, h))
+                else:
+                    # Source is taller — crop top/bottom
+                    new_h = int(w / target_ratio)
+                    top = (h - new_h) // 2
+                    img = img.crop((0, top, w, top + new_h))
+                img = img.resize((tw, th), Image.LANCZOS)
+                
+                # Create rounded mask to clip corners
+                from PIL import ImageDraw
+                radius = 10
+                mask = Image.new("L", (tw, th), 0)
+                draw = ImageDraw.Draw(mask)
+                draw.rounded_rectangle(
+                    [(0, 0), (tw - 1, th - 1)],
+                    radius=radius, fill=255
+                )
+                
+                # Apply mask — composite onto bg color
+                bg_img = Image.new("RGBA", (tw, th), bg_color)
+                bg_img.paste(img, (0, 0), mask)
+                
+                self._tk_thumb = ImageTk.PhotoImage(bg_img.convert("RGB"))
+                
+                thumb_label = tk.Label(
+                    self.frame, image=self._tk_thumb, bd=0,
+                    highlightthickness=0, bg=bg_color
+                )
+                thumb_label.pack(padx=self.PADDING, pady=(self.PADDING, 0))
+            except Exception:
+                pass
+        
+        # ---- Button row (horizontal) ----
+        btn_row = ctk.CTkFrame(self.frame, fg_color="transparent")
+        btn_row.pack(pady=(3, 4))  # Centered horizontally, increased bottom margin
+        
+        btn_w = 30  # Further reduced width to eliminate horizontal empty space
+        
+        self.btn_local = ctk.CTkButton(
+            btn_row, text="📁Local", height=26, width=btn_w, corner_radius=13,
+            fg_color=("#e8e8e8", "#2c2c2e"), hover_color=("#d0d0d0", "#3a3a3c"),
+            text_color=COLORS["text_primary"],
+            font=("Segoe UI", 9),
+            command=lambda: [on_local(), self._safe_destroy()]
+        )
+        self.btn_local.pack(side="left", padx=(0, 2))
+        
+        self.btn_cloud = ctk.CTkButton(
+            btn_row, text="☁Cloud", height=26, width=btn_w, corner_radius=13,
+            fg_color=("#e8e8e8", "#2c2c2e"), hover_color=("#d0d0d0", "#3a3a3c"),
+            text_color=COLORS["text_primary"],
+            font=("Segoe UI", 9),
+            command=lambda: [on_cloud(), self._safe_destroy()]
+        )
+        self.btn_cloud.pack(side="left", padx=(2, 0))
+        
+        # Set explicit size AND position to avoid inconsistent sizing
+        self.geometry(f"{popup_w}x{popup_h}+{x-5}+{y-5}")
+        
+        # Grace period before enabling auto-close (longer for external displays)
+        self._can_close = False
+        self._destroying = False
+        self.after(500, self._enable_close)
+        
+        # Leave tracking
+        self.outer_frame.bind("<Leave>", self._on_mouse_leave)
+        self.btn_local.bind("<Enter>", lambda e: self._cancel_close())
+        self.btn_cloud.bind("<Enter>", lambda e: self._cancel_close())
+
+    def _safe_destroy(self):
+        """Safely destroy popup, guarding against already-destroyed windows."""
+        if self._destroying:
+            return
+        self._destroying = True
+        try:
+            if self.winfo_exists():
+                self.destroy()
+        except Exception:
+            pass
+
+    def _enable_close(self):
+        if self._destroying:
+            return
+        self._can_close = True
+        # Wait until window is mapped and has valid geometry before checking position
+        self.after(200, self._check_position_loop)
+
+    def _on_mouse_leave(self, event):
+        if self._can_close and not self._destroying:
+            self.after(150, self._check_really_left)
+
+    def _check_really_left(self):
+        if self._destroying:
+            return
+        try:
+            if not self.winfo_exists():
+                return
+            mx = self.winfo_pointerx()
+            my = self.winfo_pointery()
+            wx = self.winfo_rootx()
+            wy = self.winfo_rooty()
+            ww = self.winfo_width()
+            wh = self.winfo_height()
+            # Sanity check: skip if geometry is not yet valid
+            if ww < 5 or wh < 5:
+                return
+            padding = 15
+            if not (wx-padding <= mx <= wx+ww+padding and wy-padding <= my <= wy+wh+padding):
+                self._safe_destroy()
+        except Exception:
+            pass
+
+    def _check_position_loop(self):
+        """Continuously check if mouse is still near the popup."""
+        if self._destroying:
+            return
+        try:
+            if not self.winfo_exists():
+                return
+            mx = self.winfo_pointerx()
+            my = self.winfo_pointery()
+            wx = self.winfo_rootx()
+            wy = self.winfo_rooty()
+            ww = self.winfo_width()
+            wh = self.winfo_height()
+            # Sanity check: skip position checks until geometry is valid
+            if ww < 5 or wh < 5:
+                self.after(200, self._check_position_loop)
+                return
+            padding = 25
+            if not (wx-padding <= mx <= wx+ww+padding and wy-padding <= my <= wy+wh+padding):
+                self._safe_destroy()
+                return
+            self.after(150, self._check_position_loop)
+        except Exception:
+            try:
+                self._safe_destroy()
+            except Exception:
+                pass
+
+    def _cancel_close(self):
+        pass
+
