@@ -885,3 +885,277 @@ class FolderChoicePopup(ctk.CTkToplevel):
     def _cancel_close(self):
         pass
 
+class PeopleList(ctk.CTkScrollableFrame):
+    """Person list with pill-shaped items — thick black border, white bg."""
+    
+    def __init__(self, parent):
+        super().__init__(parent, fg_color=COLORS["bg_card"], corner_radius=14)
+        self._last_hash = None
+        self._hover_id = None
+        self._popup = None
+        self._thumb_cache = {}  # person_id -> thumbnail path
+    
+
+    def _get_person_thumbnail(self, person_id, person_name, enrollment=None):
+        """Get or generate a face thumbnail for a person.
+        
+        Priority:
+        1. Cached thumbnail
+        2. Enrollment selfie (enrolled users)
+        3. Auto-crop from first detected face (non-enrolled)
+        
+        Returns path string or None.
+        """
+        # Check memory cache
+        if person_id in self._thumb_cache:
+            cached = self._thumb_cache[person_id]
+            if cached and Path(cached).exists():
+                return cached
+        
+        try:
+            from app.config import get_config
+            config = get_config()
+            
+            # Check for enrollment selfie first
+            if enrollment:
+                selfie = Path(enrollment.selfie_path)
+                if selfie.exists():
+                    self._thumb_cache[person_id] = str(selfie)
+                    return str(selfie)
+            
+            # Check for reference selfie in person folder
+            person_dir = config.people_dir / person_name
+            ref_selfie = person_dir / "00_REFERENCE_SELFIE.jpg"
+            if ref_selfie.exists():
+                self._thumb_cache[person_id] = str(ref_selfie)
+                return str(ref_selfie)
+            
+            # Auto-generate from face bbox
+            cache_dir = config.people_dir / ".thumbnails"
+            cache_dir.mkdir(exist_ok=True)
+            thumb_path = cache_dir / f"person_{person_id}.jpg"
+            
+            if thumb_path.exists():
+                self._thumb_cache[person_id] = str(thumb_path)
+                return str(thumb_path)
+            
+            # Generate: crop face from source photo
+            db = get_db()
+            face_info = db.get_first_face_for_person(person_id)
+            if not face_info or not face_info["processed_path"]:
+                self._thumb_cache[person_id] = None
+                return None
+            
+            src_path = Path(face_info["processed_path"])
+            if not src_path.exists():
+                self._thumb_cache[person_id] = None
+                return None
+            
+            img = Image.open(src_path)
+            bx, by, bw, bh = face_info["bbox_x"], face_info["bbox_y"], face_info["bbox_w"], face_info["bbox_h"]
+            
+            # Add generous padding around the face crop
+            pad = int(max(bw, bh) * 0.4)
+            x1 = max(0, bx - pad)
+            y1 = max(0, by - pad)
+            x2 = min(img.width, bx + bw + pad)
+            y2 = min(img.height, by + bh + pad)
+            
+            face_crop = img.crop((x1, y1, x2, y2))
+            face_crop = face_crop.resize((120, 120), Image.LANCZOS)
+            face_crop.save(str(thumb_path), "JPEG", quality=85)
+            
+            self._thumb_cache[person_id] = str(thumb_path)
+            return str(thumb_path)
+            
+        except Exception:
+            self._thumb_cache[person_id] = None
+            return None
+
+    def _open_person_folder(self, person_name):
+        """Open the specific person's folder in file explorer."""
+        try:
+            from app.config import get_config
+            config = get_config()
+            folder_path = config.people_dir / person_name
+            if folder_path.exists():
+                os.startfile(str(folder_path))
+        except Exception:
+            pass
+
+    def _open_cloud_folder(self, person_name):
+        """Determine cloud URL and open in browser."""
+        def task():
+            try:
+                from app.cloud import get_cloud
+                cloud = get_cloud()
+                if cloud.is_enabled:
+                    folder_id = cloud.ensure_folder_path(["People", person_name])
+                    if folder_id:
+                        url = f"https://drive.google.com/drive/folders/{folder_id}"
+                        webbrowser.open(url)
+            except Exception:
+                pass
+        threading.Thread(target=task, daemon=True).start()
+
+    def _close_popup(self):
+        """Close the popup if it exists."""
+        try:
+            if self._popup and self._popup.winfo_exists():
+                self._popup._safe_destroy()
+        except Exception:
+            pass
+        self._popup = None
+
+    def _show_choice_popup(self, x, y, person_name, person_id=None, enrollment=None):
+        """Show the floating choice menu with optional face thumbnail."""
+        # Close any existing popup safely
+        self._close_popup()
+        
+        # Get thumbnail
+        thumb = None
+        if person_id is not None:
+            thumb = self._get_person_thumbnail(person_id, person_name, enrollment)
+        
+        try:
+            self._popup = FolderChoicePopup(
+                self, x, y, person_name,
+                on_local=lambda: self._open_person_folder(person_name),
+                on_cloud=lambda: self._open_cloud_folder(person_name),
+                thumbnail_path=thumb
+            )
+        except Exception:
+            # If popup creation fails (e.g. external display timing issue), just skip
+            self._popup = None
+
+    def update_persons(self, persons: list, enrollments: dict):
+        current_counts = {}
+        for p in persons:
+            name = enrollments.get(p.id).user_name if p.id in enrollments else p.name
+            current_counts[name] = p.face_count
+
+        changes = []
+        if hasattr(self, "_last_counts"):
+            for name, count in current_counts.items():
+                old_count = self._last_counts.get(name, 0)
+                if count > old_count:
+                    changes.append(name)
+        
+        self._last_counts = current_counts
+
+        data_hash = str([(p.id, p.name, p.face_count) for p in persons])
+        if data_hash == self._last_hash:
+            pass
+        else:
+            self._last_hash = data_hash
+            
+            for w in self.winfo_children():
+                w.destroy()
+            
+            if not persons:
+                ctk.CTkLabel(self, text="No people detected yet", font=("Segoe UI", 13), text_color=COLORS["text_secondary"]).pack(pady=20)
+                return
+            
+            for person in persons:
+                enrollment = enrollments.get(person.id)
+                name = enrollment.user_name if enrollment else person.name
+                icon = "✓ " if enrollment else ""
+                p_name = person.name # Current folder name
+                
+                # Pill-shaped row: thick black border, fully rounded, white bg
+                row = ctk.CTkFrame(
+                    self, fg_color=COLORS["bg_card"], corner_radius=50,
+                    border_width=1, border_color=COLORS["border"],
+                    height=36
+                )
+                row.pack(fill="x", padx=4, pady=3)
+                row.pack_propagate(False)
+                row.configure(cursor="hand2")
+                
+                # Hover effect & Popup trigger
+                def on_enter(e, r=row, pn=p_name, pid=person.id, enr=enrollment): 
+                    r.configure(fg_color=("#f2f2f2", "#3a3a3c"))
+                    # Start timer for popup
+                    if self._hover_id: self.after_cancel(self._hover_id)
+                    self._hover_id = self.after(600, lambda: self._show_choice_popup(e.x_root, e.y_root, pn, pid, enr))
+
+                def on_leave(e, r=row): 
+                    r.configure(fg_color=COLORS["bg_card"])
+                    # Cancel timer if popup hasn't appeared yet
+                    if self._hover_id:
+                        self.after_cancel(self._hover_id)
+                        self._hover_id = None
+                    # Don't close popup immediately - let the popup's own tracking handle it
+                
+                # Click handler (still opens local immediately as quick action)
+                def on_click(e, pn=p_name): 
+                    if self._hover_id: self.after_cancel(self._hover_id)
+                    self._open_person_folder(pn)
+                
+                row.bind("<Enter>", on_enter)
+                row.bind("<Leave>", on_leave)
+                row.bind("<Button-1>", on_click)
+                
+                name_lbl = ctk.CTkLabel(
+                    row, text=f"{icon}{name}", font=("Segoe UI", 12),
+                    text_color=COLORS["text_primary"]
+                )
+                name_lbl.pack(side="left", padx=(16, 5), pady=4)
+                name_lbl.bind("<Button-1>", on_click)
+                name_lbl.bind("<Enter>", on_enter)
+                
+                count_lbl = ctk.CTkLabel(
+                    row, text=f"{person.face_count}", font=("Segoe UI", 12),
+                    text_color=COLORS["text_secondary"]
+                )
+                count_lbl.pack(side="right", padx=(5, 16), pady=4)
+                count_lbl.bind("<Button-1>", on_click)
+                count_lbl.bind("<Enter>", on_enter)
+        
+        for name in changes:
+            self.highlight_person(name)
+    
+    def highlight_person(self, name_to_find):
+        """Find and highlight a person in the list."""
+        search = name_to_find.lower().strip()
+        found_widget = None
+        
+        for row in self.winfo_children():
+            children = row.winfo_children()
+            if not children: continue
+            
+            name_lbl = children[0]
+            if not isinstance(name_lbl, ctk.CTkLabel): continue
+            
+            txt = name_lbl.cget("text").lower()
+            if txt.startswith("✓ "): txt = txt[2:]
+            
+            if search in txt:
+                found_widget = row
+                break
+        
+        if found_widget:
+            orig_color = found_widget.cget("fg_color")
+            flash_color = COLORS["accent"]
+            
+            def flash(step):
+                try:
+                    if not found_widget.winfo_exists():
+                        return
+                except Exception:
+                    return
+                
+                if step > 5:
+                    try:
+                        found_widget.configure(fg_color=COLORS["bg_card"])
+                    except Exception:
+                        pass
+                    return
+                c = flash_color if step % 2 == 0 else COLORS["bg_card"]
+                try:
+                    found_widget.configure(fg_color=c)
+                except Exception:
+                    return
+                self.after(200, lambda: flash(step + 1))
+            
+            flash(0)
