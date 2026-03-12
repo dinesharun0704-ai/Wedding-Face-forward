@@ -1025,7 +1025,7 @@ class PeopleList(ctk.CTkScrollableFrame):
                 thumbnail_path=thumb
             )
         except Exception:
-            # If popup creation fails (e.g. external display timing issue), just skip
+            # If popup creation fails (e.g. external display timing issue),, just skip
             self._popup = None
 
     def update_persons(self, persons: list, enrollments: dict):

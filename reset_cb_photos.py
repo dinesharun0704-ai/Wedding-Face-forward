@@ -23,7 +23,7 @@ cur.execute("""
 """)
 print(f"\nReset {cur.rowcount} photos to 'pending'")
 
-# Also delete any face records for these photos so they get re-detected
+# Also delete any face record for these photo so they get re-detected
 cur.execute("DELETE FROM faces WHERE photo_id IN (SELECT id FROM photos WHERE original_path LIKE '%cb%')")
 print(f"Deleted {cur.rowcount} old face records")
 

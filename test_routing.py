@@ -19,7 +19,7 @@ person_ids = db.get_unique_persons_in_photo(photo_id)
 print(f"Photo {photo_id}: {len(person_ids)} unique persons: {person_ids}")
 
 # Try routing
-print(f"\nAttempting to route photo {photo_id}...")
+print(f"\nAttempting to route the photo {photo_id}...")
 try:
     routed_paths = route_photo(photo_id, processed_path, person_ids, config)
     print(f"Success! Routed to {len(routed_paths)} paths:")

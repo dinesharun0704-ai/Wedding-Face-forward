@@ -43,7 +43,7 @@ photo = db.get_photo_by_hash(file_hash)
 if photo:
     print(f"SUCCESS: Photo found in DB with status: {photo.status}")
 else:
-    print("FAILURE: Photo NOT found in DB. Watcher or Worker is not processing new files.")
+    print("FAILURE: Photo NOT found in DB. Watcher or Worker is not processing new files")
 
 # Cleanup
 # os.remove(test_image_path)

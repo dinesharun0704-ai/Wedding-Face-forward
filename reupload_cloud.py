@@ -59,7 +59,7 @@ def delete_item(cloud: CloudManager, item):
         ).execute()
         
     except Exception as e:
-        # Check for permission errors
+        # Check for permission error
         if "insufficientFilePermissions" in str(e) or "403" in str(e):
             if is_folder:
                 logger.warning(f"Permission denied deleting folder '{name}'. Clearing contents instead...")

@@ -5,7 +5,7 @@ from PIL import Image
 import sys
 
 def test_format_support():
-    """Test if PIL can handle modern formats."""
+    """Test if PIL can handle modern formats"""
     
     print("Testing modern image format support...")
     print("=" * 50)

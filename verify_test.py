@@ -27,4 +27,4 @@ cursor = conn.execute("SELECT id, original_path, status FROM photos WHERE status
 rows = cursor.fetchall()
 print("\nRecent no_faces in DB:")
 for row in rows:
-    print(f"  ID: {row[0]}, Path: {row[1]}, Status: {row[2]}")
+    print(f" ID: {row[0]}, Path: {row[1]}, Status: {row[2]}")
